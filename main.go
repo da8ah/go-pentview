@@ -13,6 +13,7 @@ import (
 
 const fileName = "data/store.db3"
 
+/*
 func createExamples(repository *services.SQLiteRepository) {
 	gosamples := services.User{
 		Name:  "Alejandro Serrano",
@@ -67,6 +68,7 @@ func createExamples(repository *services.SQLiteRepository) {
 		fmt.Printf("user: %+v\n", user)
 	}
 }
+*/
 
 func main() {
 	os.Remove(fileName)
@@ -81,10 +83,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	createExamples(repository)
-
 	// Routes
 	http.HandleFunc("/", getHome)
+	http.HandleFunc("/employee-service/user/list", getUsers)
 
 	err = http.ListenAndServe(":3000", nil)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -96,5 +97,9 @@ func main() {
 }
 
 func getHome(w http.ResponseWriter, r *http.Request) {
+	io.WriteString(w, "Hello World!")
+}
+
+func getUsers(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Hello World!")
 }
