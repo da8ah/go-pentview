@@ -10,22 +10,40 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
-// func getEnvVar(key string) string {
-//    err := godotenv.Load(".env")
+func getEnvVar(key string) string {
+	err := godotenv.Load(".env")
 
-//    if err != nil {
-//        log.Fatal(err)
-//    }
-//    return os.Getenv(key)
-// }
+	if err != nil {
+		log.Fatal(err)
+	}
+	return os.Getenv(key)
+}
+
+func generarToken(user_id int64, username string, role string) string {
+	key := []byte(getEnvVar("TOKEN"))
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		jwt.MapClaims{
+			"username":  username,
+			"sub":       user_id,
+			"authority": role,
+			"iat":       strconv.FormatInt(time.Now().UnixMilli(), 10),
+			"exp":       strconv.FormatInt(time.Now().Add(time.Hour*1).UnixMilli(), 10),
+		})
+	s, _ := t.SignedString(key)
+	return s
+}
 
 func main() {
 	srv := initServer()
-	err := http.ListenAndServe(":3000", srv)
+	err := http.ListenAndServe(":"+getEnvVar("PORT"), srv)
 	if errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("server closed\n")
 	} else if err != nil {
@@ -34,17 +52,15 @@ func main() {
 	}
 }
 
-const dbpath = "data/store.db3"
-
 type Server struct {
 	*mux.Router
 	repo *services.SQLiteRepository
 }
 
 func initServer() *Server {
-	os.Remove(dbpath)
+	os.Remove(getEnvVar("DBPATH"))
 
-	db, err := sql.Open("sqlite3", dbpath)
+	db, err := sql.Open("sqlite3", getEnvVar("DBPATH"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,11 +74,21 @@ func initServer() *Server {
 		Router: mux.NewRouter(),
 		repo:   repo,
 	}
+	s.createAdminUser()
 	s.routes()
 	return s
 }
 
+func (s *Server) createAdminUser() {
+	role := services.Role{RoleID: 1, Name: "admin"}
+	s.repo.CreateRole(role)
+
+	user := services.User{UserID: 1, Name: "Admin Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp", CreatedAt: "today", RoleID: 1}
+	s.repo.CreateUser(user)
+}
+
 func (s *Server) routes() {
+	s.HandleFunc("/employee-service/user/auth/login", s.login(s.repo)).Methods("POST")
 	s.HandleFunc("/employee-service/role", s.createRole(s.repo)).Methods("POST")
 	s.HandleFunc("/employee-service/role", s.getRoles(s.repo)).Methods("GET")
 	s.HandleFunc("/employee-service/user", s.createUser(s.repo)).Methods("POST")
@@ -73,9 +99,68 @@ func (s *Server) routes() {
 	s.HandleFunc("/employee-service/hour-register", s.getClockings(s.repo)).Methods("GET")
 }
 
+func validateToken(token string) bool {
+	res, _ := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("failed to parse")
+		}
+		return getEnvVar("Token"), nil
+	})
+	return res != nil
+}
+func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Retrieve json
+		var credentials services.Credentials
+		json.NewDecoder(r.Body).Decode(&credentials)
+
+		user, role, err := repo.CompareCredentials(credentials)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: err.Error()}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		res := struct {
+			Token string `json:"access_token"`
+		}{generarToken(user.UserID, user.Email, role.Name)}
+		if err := json.NewEncoder(w).Encode(res); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
 
 		// Retrieve json
 		var role services.Role
@@ -96,12 +181,12 @@ func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 		roleCreated, _ := repo.GetRoleByName(role.Name)
 
 		// Response role
-		data := struct {
+		res := struct {
 			Message string        `json:"message"`
 			Role    services.Role `json:"role"`
 		}{"Rol creado correctamente", *roleCreated}
 
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -110,6 +195,29 @@ func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) getRoles(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
 		roles, _ := repo.AllRoles()
 		if err := json.NewEncoder(w).Encode(roles); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -121,6 +229,28 @@ func (s *Server) getRoles(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
 
 		// Retrieve json
 		var user services.User
@@ -149,12 +279,12 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		userCreated, _ := repo.GetUserByName(user.Name)
 
 		// Response user
-		data := struct {
+		res := struct {
 			Message string        `json:"message"`
 			User    services.User `json:"user"`
 		}{"Usuario creado", *userCreated}
 
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -163,6 +293,29 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) getUsers(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
 		users, _ := repo.AllUsers()
 		if len(users) == 0 {
 			users = []services.User{}
@@ -176,6 +329,29 @@ func (s *Server) getUsers(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
 		// Retireve id
 		id := mux.Vars(r)["id"]
 		intid, err := strconv.ParseInt(id, 10, 64)
@@ -210,12 +386,12 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		userUpdated, _ := repo.GetUserByName(user.Name)
 
 		// Response user
-		data := struct {
+		res := struct {
 			Message string        `json:"message"`
 			User    services.User `json:"user"`
 		}{"Usuario actualizado correctamente", *userUpdated}
 
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -224,6 +400,29 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) deleteUser(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
 		id := mux.Vars(r)["id"]
 		intid, err := strconv.ParseInt(id, 10, 64)
 		if err != nil {
@@ -239,10 +438,10 @@ func (s *Server) deleteUser(repo *services.SQLiteRepository) http.HandlerFunc {
 			return
 		}
 
-		data := struct {
+		res := struct {
 			Message string `json:"message"`
 		}{"Delete user"}
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -252,6 +451,28 @@ func (s *Server) deleteUser(repo *services.SQLiteRepository) http.HandlerFunc {
 func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
 
 		// Retrieve json
 		var clocking services.Clocking
@@ -266,7 +487,7 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 		}
 
 		// Create clocking
-		res, err := repo.CreateClocking(clocking)
+		resCreated, err := repo.CreateClocking(clocking)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -277,15 +498,15 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 		}
 
 		// Read clocking
-		clockingCreated, _ := repo.GetClockingById(res.ClockingID)
+		clockingCreated, _ := repo.GetClockingById(resCreated.ClockingID)
 
 		// Response clocking
-		data := struct {
+		res := struct {
 			Message  string            `json:"message"`
 			Clocking services.Clocking `json:"clocking"`
 		}{"Clocking registrado", *clockingCreated}
 
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -294,7 +515,31 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 func (s *Server) getClockings(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		clockings, _ := repo.AllClockings()
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		var user_id_from_token int64 = 1
+		clockings, _ := repo.AllClockings(user_id_from_token)
 		if len(clockings) == 0 {
 			clockings = []services.Clocking{}
 		}

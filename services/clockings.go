@@ -12,9 +12,9 @@ const tableClockings = "clockings"
 
 var (
 	QueryCreateClocking   = fmt.Sprintf("INSERT INTO %s(type, date, user_id_fk) values(?,?,?)", tableClockings)
-	QueryReadClockings    = fmt.Sprintf("SELECT * FROM %s", tableClockings)
+	QueryReadClockings    = fmt.Sprintf("SELECT * FROM %s WHERE user_id_fk = ?", tableClockings)
 	QueryReadClockingById = fmt.Sprintf("SELECT * FROM %s WHERE clocking_id = ?", tableClockings)
-	QueryUpdateClocking   = fmt.Sprintf("UPDATE %s SET type = ?, date = ?, user_id_fk = ? WHERE id = ?", tableClockings)
+	QueryUpdateClocking   = fmt.Sprintf("UPDATE %s SET type = ?, date = ?, user_id_fk = ? WHERE clocking_id = ?", tableClockings)
 	QueryDeleteClocking   = fmt.Sprintf("DELETE FROM %s WHERE clocking_id = ?", tableClockings)
 )
 
@@ -46,8 +46,8 @@ func (r *SQLiteRepository) CreateClocking(clocking Clocking) (*Clocking, error) 
 	return &clocking, nil
 }
 
-func (r *SQLiteRepository) AllClockings() ([]Clocking, error) {
-	rows, err := r.db.Query(QueryReadClockings)
+func (r *SQLiteRepository) AllClockings(user_id int64) ([]Clocking, error) {
+	rows, err := r.db.Query(QueryReadClockings, user_id)
 	if err != nil {
 		return nil, err
 	}

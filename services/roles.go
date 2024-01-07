@@ -11,10 +11,10 @@ import (
 const tableRoles = "roles"
 
 var (
-	QueryCreateRole     = fmt.Sprintf("INSERT INTO %s(name) values(?)", tableRoles)
+	QueryCreateRole     = fmt.Sprintf("INSERT INTO %s(name) values(UPPER(?))", tableRoles)
 	QueryReadRoles      = fmt.Sprintf("SELECT * FROM %s", tableRoles)
 	QueryReadRoleByName = fmt.Sprintf("SELECT * FROM %s WHERE name = ?", tableRoles)
-	QueryUpdateRole     = fmt.Sprintf("UPDATE %s SET name = ? WHERE role_id = ?", tableRoles)
+	QueryUpdateRole     = fmt.Sprintf("UPDATE %s SET name = UPPER(?) WHERE role_id = ?", tableRoles)
 	QueryDeleteRole     = fmt.Sprintf("DELETE FROM %s WHERE role_id = ?", tableRoles)
 )
 
