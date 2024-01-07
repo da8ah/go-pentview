@@ -14,13 +14,13 @@ var (
 	QueryCreateRole     = fmt.Sprintf("INSERT INTO %s(name) values(?)", tableRoles)
 	QueryReadRoles      = fmt.Sprintf("SELECT * FROM %s", tableRoles)
 	QueryReadRoleByName = fmt.Sprintf("SELECT * FROM %s WHERE name = ?", tableRoles)
-	QueryUpdateRole     = fmt.Sprintf("UPDATE %s SET name = ? WHERE id = ?", tableRoles)
-	QueryDeleteRole     = fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableRoles)
+	QueryUpdateRole     = fmt.Sprintf("UPDATE %s SET name = ? WHERE role_id = ?", tableRoles)
+	QueryDeleteRole     = fmt.Sprintf("DELETE FROM %s WHERE role_id = ?", tableRoles)
 )
 
 type Role struct {
-	RoleID int64
-	Name   string
+	RoleID int64  `json:"_id"`
+	Name   string `json:"name"`
 }
 
 func (r *SQLiteRepository) CreateRole(role Role) (*Role, error) {

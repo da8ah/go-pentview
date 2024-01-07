@@ -14,17 +14,17 @@ var (
 	QueryCreateUser     = fmt.Sprintf("INSERT INTO %s(name, email, pfp, createdAt, role_id_fk) values(?,?,?,?,?)", tableUsers)
 	QueryReadUser       = fmt.Sprintf("SELECT * FROM %s", tableUsers)
 	QueryReadUserByName = fmt.Sprintf("SELECT * FROM %s WHERE name = ?", tableUsers)
-	QueryUpdateUser     = fmt.Sprintf("UPDATE %s SET name = ?, email = ?, pfp = ?, createdAt = ?, role_id_fk = ? WHERE id = ?", tableUsers)
-	QueryDeleteUser     = fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableUsers)
+	QueryUpdateUser     = fmt.Sprintf("UPDATE %s SET name = ?, email = ?, pfp = ?, createdAt = ?, role_id_fk = ? WHERE user_id = ?", tableUsers)
+	QueryDeleteUser     = fmt.Sprintf("DELETE FROM %s WHERE user_id = ?", tableUsers)
 )
 
 type User struct {
-	UserID    int64
-	Name      string
-	Email     string
-	PFP       string
-	CreatedAt string
-	RoleID    int64
+	UserID    int64  `json:"_id"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	PFP       string `json:"profileImage"`
+	CreatedAt string `json:"createdAt"`
+	RoleID    int64  `json:"role"`
 }
 
 func (r *SQLiteRepository) CreateUser(user User) (*User, error) {
