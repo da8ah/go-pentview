@@ -33,6 +33,7 @@ func (r *SQLiteRepository) Migrate() error {
 			user_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
 			email TEXT NOT NULL UNIQUE,
+			password TEXT NOT NULL,
 			pfp TEXT NOT NULL,
 			createdAt TEXT NOT NULL,
 			role_id_fk INTEGER,
@@ -40,8 +41,8 @@ func (r *SQLiteRepository) Migrate() error {
 				REFERENCES roles (role_id)
 		);
 
-		CREATE TABLE IF NOT EXISTS checks (
-			check_id INTEGER PRIMARY KEY AUTOINCREMENT,
+		CREATE TABLE IF NOT EXISTS clockings (
+			clocking_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			type TEXT NOT NULL,
 			date TEXT NOT NULL,
 			user_id_fk INTEGER,

@@ -14,6 +14,15 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// func getEnvVar(key string) string {
+//    err := godotenv.Load(".env")
+
+//    if err != nil {
+//        log.Fatal(err)
+//    }
+//    return os.Getenv(key)
+// }
+
 func main() {
 	srv := initServer()
 	err := http.ListenAndServe(":3000", srv)
@@ -58,8 +67,10 @@ func (s *Server) routes() {
 	s.HandleFunc("/employee-service/role", s.getRoles(s.repo)).Methods("GET")
 	s.HandleFunc("/employee-service/user", s.createUser(s.repo)).Methods("POST")
 	s.HandleFunc("/employee-service/user/list", s.getUsers(s.repo)).Methods("GET")
-	s.HandleFunc("/employee-service/user/{id}", s.deleteUser(s.repo)).Methods("DELETE")
 	s.HandleFunc("/employee-service/user/{id}", s.updateUser(s.repo)).Methods("PUT")
+	s.HandleFunc("/employee-service/user/{id}", s.deleteUser(s.repo)).Methods("DELETE")
+	s.HandleFunc("/employee-service/hour-register", s.createClocking(s.repo)).Methods("POST")
+	s.HandleFunc("/employee-service/hour-register", s.getClockings(s.repo)).Methods("GET")
 }
 
 func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
@@ -232,6 +243,62 @@ func (s *Server) deleteUser(repo *services.SQLiteRepository) http.HandlerFunc {
 			Message string `json:"message"`
 		}{"Delete user"}
 		if err := json.NewEncoder(w).Encode(data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Retrieve json
+		var clocking services.Clocking
+		err := json.NewDecoder(r.Body).Decode(&clocking)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: err.Error()}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		// Create clocking
+		res, err := repo.CreateClocking(clocking)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: err.Error()}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		// Read clocking
+		clockingCreated, _ := repo.GetClockingById(res.ClockingID)
+
+		// Response clocking
+		data := struct {
+			Message  string            `json:"message"`
+			Clocking services.Clocking `json:"clocking"`
+		}{"Clocking registrado", *clockingCreated}
+
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+func (s *Server) getClockings(repo *services.SQLiteRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		clockings, _ := repo.AllClockings()
+		if len(clockings) == 0 {
+			clockings = []services.Clocking{}
+		}
+		if err := json.NewEncoder(w).Encode(clockings); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
