@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go-pentview/services"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -69,11 +70,12 @@ func (s *Server) createAdminUser() {
 	role := services.Role{RoleID: 1, Name: "admin"}
 	s.repo.CreateRole(role)
 
-	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp", CreatedAt: "today", RoleID: 1}
+	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp.png", CreatedAt: "today", RoleID: 1}
 	s.repo.CreateUser(user)
 }
 
 func (s *Server) routes() {
+	s.HandleFunc("/upload/{img}", s.getPFP()).Methods("GET")
 	s.HandleFunc("/employee-service/user/auth/login", s.login(s.repo)).Methods("POST")
 	s.HandleFunc("/employee-service/user/profile", s.getProfile(s.repo)).Methods("GET")
 	s.HandleFunc("/employee-service/user/update-profile", s.updateProfile(s.repo)).Methods("PUT")
@@ -121,6 +123,34 @@ func validateToken(token string) (bool, int64) {
 		}
 	}
 	return tokenDecoded.Valid, 0
+}
+
+func UploadPFP(r *http.Request) {
+	file, handler, err := r.FormFile("image")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	f, err := os.OpenFile("data/img/"+handler.Filename, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	_, _ = io.Copy(f, file)
+	fmt.Printf("File %s saved!\n", handler.Filename)
+}
+func (s *Server) getPFP() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		imgpath := mux.Vars(r)["img"]
+		img, err := os.Open("data/img/" + imgpath)
+		if err != nil {
+			log.Fatal(err) // perhaps handle this nicer
+		}
+		defer img.Close()
+		w.Header().Set("Content-Type", "image/png") // <-- set the content-type header
+		io.Copy(w, img)
+	}
 }
 
 func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
@@ -367,9 +397,13 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 			return
 		}
 
-		// Retrieve json
+		// Retrieve files
+		UploadPFP(r)
+		body := r.FormValue("json")
+
+		// Parse json
 		var user services.User
-		err := json.NewDecoder(r.Body).Decode(&user)
+		err := json.Unmarshal([]byte(body), &user)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -378,6 +412,7 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 			json.NewEncoder(w).Encode(msg)
 			return
 		}
+		user.PFP = "upload/" + user.PFP
 
 		// Create user
 		_, err = repo.CreateUser(user)
