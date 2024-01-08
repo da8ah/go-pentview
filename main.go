@@ -27,20 +27,6 @@ func getEnvVar(key string) string {
 	return os.Getenv(key)
 }
 
-func generarToken(user_id int64, username string, role string) string {
-	key := []byte(getEnvVar("TOKEN"))
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256,
-		jwt.MapClaims{
-			"username":  username,
-			"sub":       user_id,
-			"authority": role,
-			"iat":       strconv.FormatInt(time.Now().UnixMilli(), 10),
-			"exp":       strconv.FormatInt(time.Now().Add(time.Hour*1).UnixMilli(), 10),
-		})
-	s, _ := t.SignedString(key)
-	return s
-}
-
 func main() {
 	srv := initServer()
 	err := http.ListenAndServe(":"+getEnvVar("PORT"), srv)
@@ -83,12 +69,14 @@ func (s *Server) createAdminUser() {
 	role := services.Role{RoleID: 1, Name: "admin"}
 	s.repo.CreateRole(role)
 
-	user := services.User{UserID: 1, Name: "Admin Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp", CreatedAt: "today", RoleID: 1}
+	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp", CreatedAt: "today", RoleID: 1}
 	s.repo.CreateUser(user)
 }
 
 func (s *Server) routes() {
 	s.HandleFunc("/employee-service/user/auth/login", s.login(s.repo)).Methods("POST")
+	s.HandleFunc("/employee-service/user/profile", s.getProfile(s.repo)).Methods("GET")
+	s.HandleFunc("/employee-service/user/update-profile", s.updateProfile(s.repo)).Methods("PUT")
 	s.HandleFunc("/employee-service/role", s.createRole(s.repo)).Methods("POST")
 	s.HandleFunc("/employee-service/role", s.getRoles(s.repo)).Methods("GET")
 	s.HandleFunc("/employee-service/user", s.createUser(s.repo)).Methods("POST")
@@ -99,15 +87,42 @@ func (s *Server) routes() {
 	s.HandleFunc("/employee-service/hour-register", s.getClockings(s.repo)).Methods("GET")
 }
 
-func validateToken(token string) bool {
-	res, _ := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+func generarToken(user_id int64, username string, role string) string {
+	key := []byte(getEnvVar("TOKEN"))
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		jwt.MapClaims{
+			"username":  username,
+			"sub":       user_id,
+			"authority": role,
+			"iat":       time.Now().UnixMilli(),
+			"exp":       time.Now().Add(time.Hour * 1).UnixMilli(),
+		})
+	s, _ := t.SignedString(key)
+	return s
+}
+func validateToken(token string) (bool, int64) {
+	tokenDecoded, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("failed to parse")
 		}
-		return getEnvVar("Token"), nil
+		return []byte(getEnvVar("TOKEN")), nil
 	})
-	return res != nil
+	if err != nil {
+		return false, 0
+	}
+	if claims, ok := tokenDecoded.Claims.(jwt.MapClaims); ok && tokenDecoded.Valid {
+		sub := fmt.Sprint(claims["sub"])
+		if len(sub) > 0 {
+			id, err := strconv.ParseInt(sub, 10, 64)
+			if err != nil {
+				panic(err)
+			}
+			return tokenDecoded.Valid, id
+		}
+	}
+	return tokenDecoded.Valid, 0
 }
+
 func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -136,6 +151,106 @@ func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
 	}
 }
 
+func (s *Server) getProfile(repo *services.SQLiteRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+			user_id int64
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid, user_id = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		profile, _ := repo.GetProfileById(user_id)
+		if err := json.NewEncoder(w).Encode(profile); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+func (s *Server) updateProfile(repo *services.SQLiteRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Auth
+		auth := r.Header.Get("Authorization")
+		var (
+			token   string
+			isValid bool
+			user_id int64
+		)
+		if len(auth) > 0 {
+			token = strings.Split(auth, " ")[1]
+			isValid, user_id = validateToken(token)
+		} else {
+			isValid = false
+		}
+
+		if !isValid {
+			w.WriteHeader(http.StatusUnauthorized)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: "no autorizado"}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		// Retrieve body
+		var user services.User
+		err := json.NewDecoder(r.Body).Decode(&user)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: err.Error()}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		// Create user
+		_, err = repo.UpdateProfile(user_id, user)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg := struct {
+				Message string `json:"message"`
+			}{Message: err.Error()}
+			json.NewEncoder(w).Encode(msg)
+			return
+		}
+
+		// Read user
+		userUpdated, _ := repo.GetUserByName(user.Name, user.Last)
+
+		// Response user
+		res := struct {
+			Message string        `json:"message"`
+			User    services.User `json:"user"`
+		}{"Usuario actualizado correctamente", *userUpdated}
+
+		if err := json.NewEncoder(w).Encode(res); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -148,7 +263,7 @@ func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -204,7 +319,7 @@ func (s *Server) getRoles(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -238,7 +353,7 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -276,7 +391,7 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Read user
-		userCreated, _ := repo.GetUserByName(user.Name)
+		userCreated, _ := repo.GetUserByName(user.Name, user.Last)
 
 		// Response user
 		res := struct {
@@ -302,7 +417,7 @@ func (s *Server) getUsers(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -338,7 +453,7 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -383,7 +498,7 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Read user
-		userUpdated, _ := repo.GetUserByName(user.Name)
+		userUpdated, _ := repo.GetUserByName(user.Name, user.Last)
 
 		// Response user
 		res := struct {
@@ -409,7 +524,7 @@ func (s *Server) deleteUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -460,7 +575,7 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -524,7 +639,7 @@ func (s *Server) getClockings(repo *services.SQLiteRepository) http.HandlerFunc 
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid = validateToken(token)
+			isValid, _ = validateToken(token)
 		} else {
 			isValid = false
 		}

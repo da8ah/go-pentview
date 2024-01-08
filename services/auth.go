@@ -20,7 +20,7 @@ func (r *SQLiteRepository) CompareCredentials(credentials Credentials) (*User, *
 
 	var user User
 	var role Role
-	if err := row.Scan(&user.UserID, &user.Name, &user.Email, &user.Password, &user.PFP, &user.CreatedAt, &user.RoleID, &role.RoleID, &role.Name); err != nil {
+	if err := row.Scan(&user.UserID, &user.Name, &user.Last, &user.Email, &user.Password, &user.PFP, &user.CreatedAt, &user.RoleID, &role.RoleID, &role.Name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, ErrNotExists
 		}
