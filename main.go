@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -29,8 +30,14 @@ func getEnvVar(key string) string {
 }
 
 func main() {
+
+	// Where ORIGIN_ALLOWED is like `scheme://dns[:port]`, or `*` (insecure)
+	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Authorization", "Accept", "Accept-Language", "Content-Type", "Content-Language", "Content-Disposition", "Origin"})
+	originsOk := handlers.AllowedOrigins([]string{getEnvVar("CORS")})
+	methodsOk := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE"})
+
 	srv := initServer()
-	err := http.ListenAndServe(":"+getEnvVar("PORT"), srv)
+	err := http.ListenAndServe(":"+getEnvVar("PORT"), handlers.CORS(originsOk, headersOk, methodsOk)(srv.Router))
 	if errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("server closed\n")
 	} else if err != nil {
@@ -46,12 +53,10 @@ type Server struct {
 
 func initServer() *Server {
 	os.Remove(getEnvVar("DBPATH"))
-
 	db, err := sql.Open("sqlite3", getEnvVar("DBPATH"))
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	repo := services.NewSQLiteRepository(db)
 	if err := repo.Migrate(); err != nil {
 		log.Fatal(err)
@@ -70,7 +75,7 @@ func (s *Server) createAdminUser() {
 	role := services.Role{RoleID: 1, Name: "admin"}
 	s.repo.CreateRole(role)
 
-	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "Admin2022", PFP: "nopfp.png", CreatedAt: "today", RoleID: 1}
+	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "admin@2022", PFP: "nopfp.png", CreatedAt: "today", RoleID: 1}
 	s.repo.CreateUser(user)
 }
 
