@@ -21,11 +21,17 @@ var (
 type Clocking struct {
 	ClockingID int64  `json:"_id"`
 	Type       string `json:"type"`
-	Date       string `json:"date"`
-	UserID     int64  `json:"user"`
+	Date       string `json:"register"`
+	UserID     int64  `json:"user,omitempty"`
 }
 
 func (r *SQLiteRepository) CreateClocking(clocking Clocking) (*Clocking, error) {
+	all, _ := r.AllClockings(clocking.UserID)
+	if len(all) > 0 && all[len(all)-1].Type == clocking.Type {
+		msg := fmt.Sprintf("tipo \"%s\" ya registrado", clocking.Type)
+		return nil, errors.New(msg)
+	}
+
 	res, err := r.db.Exec(QueryCreateClocking, clocking.Type, clocking.Date, clocking.UserID)
 	if err != nil {
 		var sqliteErr sqlite3.Error

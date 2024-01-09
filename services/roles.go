@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mattn/go-sqlite3"
 )
@@ -11,7 +12,7 @@ import (
 const tableRoles = "roles"
 
 var (
-	QueryCreateRole     = fmt.Sprintf("INSERT INTO %s(name) values(UPPER(?))", tableRoles)
+	QueryCreateRole     = fmt.Sprintf("INSERT INTO %s(name, createdAt) values(UPPER(?),?)", tableRoles)
 	QueryReadRoles      = fmt.Sprintf("SELECT * FROM %s", tableRoles)
 	QueryReadRoleByName = fmt.Sprintf("SELECT * FROM %s WHERE name = ?", tableRoles)
 	QueryUpdateRole     = fmt.Sprintf("UPDATE %s SET name = UPPER(?) WHERE role_id = ?", tableRoles)
@@ -19,12 +20,13 @@ var (
 )
 
 type Role struct {
-	RoleID int64  `json:"_id"`
-	Name   string `json:"name"`
+	RoleID    int64  `json:"_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
 }
 
 func (r *SQLiteRepository) CreateRole(role Role) (*Role, error) {
-	res, err := r.db.Exec(QueryCreateRole, role.Name)
+	res, err := r.db.Exec(QueryCreateRole, role.Name, time.Now().Format(time.RFC3339))
 	if err != nil {
 		var sqliteErr sqlite3.Error
 		if errors.As(err, &sqliteErr) {
@@ -54,7 +56,7 @@ func (r *SQLiteRepository) AllRoles() ([]Role, error) {
 	var all []Role
 	for rows.Next() {
 		var role Role
-		if err := rows.Scan(&role.RoleID, &role.Name); err != nil {
+		if err := rows.Scan(&role.RoleID, &role.Name, &role.CreatedAt); err != nil {
 			return nil, err
 		}
 		all = append(all, role)

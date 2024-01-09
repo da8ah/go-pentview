@@ -26,7 +26,8 @@ func (r *SQLiteRepository) Migrate() error {
 	const QueryTable = `
 		CREATE TABLE IF NOT EXISTS roles (
 			role_id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE
+			name TEXT NOT NULL UNIQUE,
+			createdAt TEXT NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS users (

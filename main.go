@@ -30,7 +30,6 @@ func getEnvVar(key string) string {
 }
 
 func main() {
-
 	// Where ORIGIN_ALLOWED is like `scheme://dns[:port]`, or `*` (insecure)
 	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Authorization", "Accept", "Accept-Language", "Content-Type", "Content-Language", "Content-Disposition", "Origin"})
 	originsOk := handlers.AllowedOrigins([]string{getEnvVar("CORS")})
@@ -75,8 +74,11 @@ func (s *Server) createAdminUser() {
 	role := services.Role{RoleID: 1, Name: "admin"}
 	s.repo.CreateRole(role)
 
-	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "admin@2022", PFP: "nopfp.png", CreatedAt: "today", RoleID: 1}
+	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "admin@2022", PFP: "upload/nopfp.png", CreatedAt: "today", Role: role}
 	s.repo.CreateUser(user)
+
+	clocking := services.Clocking{Type: "in", Date: time.Now().Format(time.RFC3339), UserID: 1}
+	s.repo.CreateClocking(clocking)
 }
 
 func (s *Server) routes() {
@@ -166,7 +168,7 @@ func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
 		var credentials services.Credentials
 		json.NewDecoder(r.Body).Decode(&credentials)
 
-		user, role, err := repo.CompareCredentials(credentials)
+		user, err := repo.CompareCredentials(credentials)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -178,7 +180,7 @@ func (s *Server) login(repo *services.SQLiteRepository) http.HandlerFunc {
 
 		res := struct {
 			Token string `json:"access_token"`
-		}{generarToken(user.UserID, user.Email, role.Name)}
+		}{generarToken(user.UserID, user.Email, user.Role.Name)}
 		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -248,8 +250,8 @@ func (s *Server) updateProfile(repo *services.SQLiteRepository) http.HandlerFunc
 		}
 
 		// Retrieve body
-		var user services.User
-		err := json.NewDecoder(r.Body).Decode(&user)
+		var body services.PutProfile
+		err := json.NewDecoder(r.Body).Decode(&body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -259,8 +261,12 @@ func (s *Server) updateProfile(repo *services.SQLiteRepository) http.HandlerFunc
 			return
 		}
 
-		// Create user
-		_, err = repo.UpdateProfile(user_id, user)
+		// Update profile
+		profile, _ := repo.GetProfileById(user_id)
+		profile.Name = body.Name
+		profile.Last = body.Last
+		profile.Email = body.Email
+		_, err = repo.UpdateProfile(user_id, *profile)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -270,14 +276,11 @@ func (s *Server) updateProfile(repo *services.SQLiteRepository) http.HandlerFunc
 			return
 		}
 
-		// Read user
-		userUpdated, _ := repo.GetUserByName(user.Name, user.Last)
-
-		// Response user
+		// Response profile
 		res := struct {
 			Message string        `json:"message"`
 			User    services.User `json:"user"`
-		}{"Usuario actualizado correctamente", *userUpdated}
+		}{"Usuario actualizado correctamente", *profile}
 
 		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -317,7 +320,7 @@ func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&role)
 
 		// Create role
-		_, err := repo.CreateRole(role)
+		roleCreated, err := repo.CreateRole(role)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -326,9 +329,6 @@ func (s *Server) createRole(repo *services.SQLiteRepository) http.HandlerFunc {
 			json.NewEncoder(w).Encode(msg)
 			return
 		}
-
-		// Read role
-		roleCreated, _ := repo.GetRoleByName(role.Name)
 
 		// Response role
 		res := struct {
@@ -369,7 +369,10 @@ func (s *Server) getRoles(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		roles, _ := repo.AllRoles()
-		if err := json.NewEncoder(w).Encode(roles); err != nil {
+		data := struct {
+			Data []services.Role `json:"data"`
+		}{Data: roles}
+		if err := json.NewEncoder(w).Encode(data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -612,10 +615,11 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 		var (
 			token   string
 			isValid bool
+			user_id int64
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid, _ = validateToken(token)
+			isValid, user_id = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -640,9 +644,10 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 			json.NewEncoder(w).Encode(msg)
 			return
 		}
+		clocking.UserID = user_id
 
 		// Create clocking
-		resCreated, err := repo.CreateClocking(clocking)
+		clockingCreated, err := repo.CreateClocking(clocking)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -651,9 +656,6 @@ func (s *Server) createClocking(repo *services.SQLiteRepository) http.HandlerFun
 			json.NewEncoder(w).Encode(msg)
 			return
 		}
-
-		// Read clocking
-		clockingCreated, _ := repo.GetClockingById(resCreated.ClockingID)
 
 		// Response clocking
 		res := struct {
@@ -676,10 +678,11 @@ func (s *Server) getClockings(repo *services.SQLiteRepository) http.HandlerFunc 
 		var (
 			token   string
 			isValid bool
+			user_id int64
 		)
 		if len(auth) > 0 {
 			token = strings.Split(auth, " ")[1]
-			isValid, _ = validateToken(token)
+			isValid, user_id = validateToken(token)
 		} else {
 			isValid = false
 		}
@@ -693,12 +696,14 @@ func (s *Server) getClockings(repo *services.SQLiteRepository) http.HandlerFunc 
 			return
 		}
 
-		var user_id_from_token int64 = 1
-		clockings, _ := repo.AllClockings(user_id_from_token)
+		clockings, _ := repo.AllClockings(user_id)
 		if len(clockings) == 0 {
 			clockings = []services.Clocking{}
 		}
-		if err := json.NewEncoder(w).Encode(clockings); err != nil {
+		data := struct {
+			Data []services.Clocking `json:"data"`
+		}{Data: clockings}
+		if err := json.NewEncoder(w).Encode(data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

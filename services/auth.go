@@ -12,19 +12,22 @@ var (
 
 type Credentials struct {
 	Username string `json:"username"`
-	Pssword  string `json:"password"`
+	Password string `json:"password"`
 }
 
-func (r *SQLiteRepository) CompareCredentials(credentials Credentials) (*User, *Role, error) {
-	row := r.db.QueryRow(QueryCredentials, credentials.Username, credentials.Pssword)
+func (r *SQLiteRepository) CompareCredentials(credentials Credentials) (*User, error) {
+	row := r.db.QueryRow(QueryCredentials, credentials.Username, credentials.Password)
 
-	var user User
-	var role Role
-	if err := row.Scan(&user.UserID, &user.Name, &user.Last, &user.Email, &user.Password, &user.PFP, &user.CreatedAt, &user.RoleID, &role.RoleID, &role.Name); err != nil {
+	var (
+		user User
+		fk   string
+	)
+	if err := row.Scan(&user.UserID, &user.Name, &user.Last, &user.Email, &user.Password, &user.PFP, &user.CreatedAt, &fk, &user.Role.RoleID, &user.Role.Name, &user.Role.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, ErrNotExists
+			return nil, ErrNotExists
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	return &user, &role, nil
+	user.Password = ""
+	return &user, nil
 }
