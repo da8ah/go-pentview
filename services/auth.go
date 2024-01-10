@@ -4,10 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	QueryCredentials = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id WHERE u.email = ? AND u.password = ?", tableUsers, tableRoles)
+	QueryHashed                 = fmt.Sprintf("SELECT u.password FROM %s u WHERE u.email = ?", tableUsers)
+	QueryProfileWithCredentials = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id WHERE u.email = ?", tableUsers, tableRoles)
 )
 
 type Credentials struct {
@@ -16,7 +19,20 @@ type Credentials struct {
 }
 
 func (r *SQLiteRepository) CompareCredentials(credentials Credentials) (*User, error) {
-	row := r.db.QueryRow(QueryCredentials, credentials.Username, credentials.Password)
+	row := r.db.QueryRow(QueryHashed, credentials.Username)
+	var hashed string
+	if err := row.Scan(&hashed); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("auth failed")
+		}
+		return nil, err
+	}
+
+	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(credentials.Password))
+	if err != nil {
+		return nil, errors.New("wrong password")
+	}
+	row = r.db.QueryRow(QueryProfileWithCredentials, credentials.Username)
 
 	var (
 		user User

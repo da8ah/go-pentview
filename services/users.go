@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const tableUsers = "users"
@@ -30,7 +31,7 @@ type User struct {
 	CreatedAt string `json:"createdAt"`
 	Role      Role   `json:"role"`
 }
-type CreateUser struct {
+type UserToCreate struct {
 	UserID    int64  `json:"_id"`
 	Name      string `json:"firstName"`
 	Last      string `json:"lastName"`
@@ -41,29 +42,26 @@ type CreateUser struct {
 	Role      string `json:"role"`
 }
 
-func (r *SQLiteRepository) CreateUser(userToCreate CreateUser) (int64, error) {
+func (r *SQLiteRepository) CreateUser(userToCreate UserToCreate) error {
 	role_id, err := strconv.ParseInt(userToCreate.Role, 10, 64)
 	if err != nil {
-		return 0, errors.New("role id must be string")
+		return errors.New("role id must be string")
 	}
 
-	res, err := r.db.Exec(QueryCreateUser, userToCreate.Name, userToCreate.Last, userToCreate.Email, userToCreate.Password, userToCreate.PFP, time.Now().Format(time.RFC3339), role_id)
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(userToCreate.Password), bcrypt.DefaultCost)
+	userToCreate.Password = string(hashed)
+	_, err = r.db.Exec(QueryCreateUser, userToCreate.Name, userToCreate.Last, userToCreate.Email, userToCreate.Password, userToCreate.PFP, time.Now().Format(time.RFC3339), role_id)
 	if err != nil {
 		var sqliteErr sqlite3.Error
 		if errors.As(err, &sqliteErr) {
 			if errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
-				return 0, ErrDuplicate
+				return ErrDuplicate
 			}
 		}
-		return 0, err
+		return err
 	}
 
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-
-	return id, nil
+	return nil
 }
 
 func (r *SQLiteRepository) AllUsers() ([]User, error) {
