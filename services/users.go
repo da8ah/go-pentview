@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -12,11 +13,11 @@ import (
 const tableUsers = "users"
 
 var (
-	QueryCreateUser     = fmt.Sprintf("INSERT INTO %s(name, last, email, password, pfp, createdAt, role_id_fk) values(?,?,?,?,?,?,?)", tableUsers)
-	QueryReadUser       = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id", tableUsers, tableRoles)
-	QueryReadUserByName = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id WHERE name = ? AND last = ?", tableUsers, tableRoles)
-	QueryUpdateUser     = fmt.Sprintf("UPDATE %s SET name = ?, last = ?, email = ? WHERE user_id = ?", tableUsers)
-	QueryDeleteUser     = fmt.Sprintf("DELETE FROM %s WHERE user_id = ?", tableUsers)
+	QueryCreateUser   = fmt.Sprintf("INSERT INTO %s(name, last, email, password, pfp, createdAt, role_id_fk) values(?,?,?,?,?,?,?)", tableUsers)
+	QueryReadUser     = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id", tableUsers, tableRoles)
+	QueryReadUserById = fmt.Sprintf("SELECT * FROM %s u JOIN %s r ON u.role_id_fk = r.role_id WHERE user_id = ?", tableUsers, tableRoles)
+	QueryUpdateUser   = fmt.Sprintf("UPDATE %s SET name = ?, last = ?, email = ? WHERE user_id = ?", tableUsers)
+	QueryDeleteUser   = fmt.Sprintf("DELETE FROM %s WHERE user_id = ?", tableUsers)
 )
 
 type User struct {
@@ -29,26 +30,40 @@ type User struct {
 	CreatedAt string `json:"createdAt"`
 	Role      Role   `json:"role"`
 }
+type CreateUser struct {
+	UserID    int64  `json:"_id"`
+	Name      string `json:"firstName"`
+	Last      string `json:"lastName"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	PFP       string `json:"profileImage"`
+	CreatedAt string `json:"createdAt"`
+	Role      string `json:"role"`
+}
 
-func (r *SQLiteRepository) CreateUser(user User) (*User, error) {
-	res, err := r.db.Exec(QueryCreateUser, user.Name, user.Last, user.Email, user.Password, user.PFP, time.Now().Format(time.RFC3339), user.Role.RoleID)
+func (r *SQLiteRepository) CreateUser(userToCreate CreateUser) (int64, error) {
+	role_id, err := strconv.ParseInt(userToCreate.Role, 10, 64)
+	if err != nil {
+		return 0, errors.New("role id must be string")
+	}
+
+	res, err := r.db.Exec(QueryCreateUser, userToCreate.Name, userToCreate.Last, userToCreate.Email, userToCreate.Password, userToCreate.PFP, time.Now().Format(time.RFC3339), role_id)
 	if err != nil {
 		var sqliteErr sqlite3.Error
 		if errors.As(err, &sqliteErr) {
 			if errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
-				return nil, ErrDuplicate
+				return 0, ErrDuplicate
 			}
 		}
-		return nil, err
+		return 0, err
 	}
 
 	id, err := res.LastInsertId()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	user.UserID = id
 
-	return &user, nil
+	return id, nil
 }
 
 func (r *SQLiteRepository) AllUsers() ([]User, error) {
@@ -73,8 +88,8 @@ func (r *SQLiteRepository) AllUsers() ([]User, error) {
 	return all, nil
 }
 
-func (r *SQLiteRepository) GetUserByName(name string, last string) (*User, error) {
-	row := r.db.QueryRow(QueryReadUserByName, name, last)
+func (r *SQLiteRepository) GetUserById(user_id int64) (*User, error) {
+	row := r.db.QueryRow(QueryReadUserById, user_id)
 
 	var user User
 	if err := row.Scan(&user.UserID, &user.Name, &user.Last, &user.Email, &user.Password, &user.PFP, &user.CreatedAt, &user.Role); err != nil {

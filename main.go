@@ -74,7 +74,7 @@ func (s *Server) createAdminUser() {
 	role := services.Role{RoleID: 1, Name: "admin"}
 	s.repo.CreateRole(role)
 
-	user := services.User{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "admin@2022", PFP: "upload/nopfp.png", CreatedAt: "today", Role: role}
+	user := services.CreateUser{UserID: 1, Name: "Admin", Last: "Admin", Email: "admin@yopmail.com", Password: "admin@2022", PFP: "upload/nopfp.png", CreatedAt: "today", Role: "1"}
 	s.repo.CreateUser(user)
 
 	clocking := services.Clocking{Type: "in", Date: time.Now().Format(time.RFC3339), UserID: 1}
@@ -410,8 +410,8 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		body := r.FormValue("json")
 
 		// Parse json
-		var user services.User
-		err := json.Unmarshal([]byte(body), &user)
+		var userToCreate services.CreateUser
+		err := json.Unmarshal([]byte(body), &userToCreate)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -420,10 +420,10 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 			json.NewEncoder(w).Encode(msg)
 			return
 		}
-		user.PFP = "upload/" + user.PFP
+		userToCreate.PFP = "upload/" + userToCreate.PFP
 
 		// Create user
-		_, err = repo.CreateUser(user)
+		user_id, err := repo.CreateUser(userToCreate)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -434,13 +434,13 @@ func (s *Server) createUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Read user
-		userCreated, _ := repo.GetUserByName(user.Name, user.Last)
+		user, _ := repo.GetUserById(user_id)
 
 		// Response user
 		res := struct {
 			Message string        `json:"message"`
 			User    services.User `json:"user"`
-		}{"Usuario creado", *userCreated}
+		}{"Usuario creado", *user}
 
 		if err := json.NewEncoder(w).Encode(res); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -518,8 +518,8 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Retrieve body
-		var user services.User
-		err = json.NewDecoder(r.Body).Decode(&user)
+		var userToUpdate services.User
+		err = json.NewDecoder(r.Body).Decode(&userToUpdate)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -530,7 +530,7 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Create user
-		_, err = repo.UpdateUser(intid, user)
+		user, err := repo.UpdateUser(intid, userToUpdate)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			msg := struct {
@@ -541,7 +541,7 @@ func (s *Server) updateUser(repo *services.SQLiteRepository) http.HandlerFunc {
 		}
 
 		// Read user
-		userUpdated, _ := repo.GetUserByName(user.Name, user.Last)
+		userUpdated, _ := repo.GetUserById(user.UserID)
 
 		// Response user
 		res := struct {
