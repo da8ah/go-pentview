@@ -103,8 +103,8 @@ func generarToken(user_id int64, username string, role string) string {
 			"username":  username,
 			"sub":       user_id,
 			"authority": role,
-			"iat":       time.Now().UnixMilli(),
-			"exp":       time.Now().Add(time.Hour * 1).UnixMilli(),
+			"iat":       time.Now().Unix(),
+			"exp":       time.Now().Add(time.Hour).Unix(),
 		})
 	s, _ := t.SignedString(key)
 	return s
