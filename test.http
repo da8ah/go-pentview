@@ -1,0 +1,127 @@
+###
+@port = 3000
+@api = http://localhost:{{port}}/employee-service
+@auth=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdXRob3JpdHkiOiJBRE1JTiIsImV4cCI6MTcwNTAyMjE2NywiaWF0IjoxNzA1MDE4NTY3LCJzdWIiOjEsInVzZXJuYW1lIjoiYWRtaW5AeW9wbWFpbC5jb20ifQ.i147g2QNWDz2wEv5DbxQg4ye7ay8WwfKsdHZUgc-6hk
+
+
+
+### AUTH
+POST {{api}}/user/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin@yopmail.com",
+  "password": "admin@2024"
+}
+
+### GET PROFILE
+GET {{api}}/user/profile
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+### PUT PROFILE
+PUT {{api}}/user/update-profile
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+{
+    "firstName": "Soy",
+    "lastName": "Admin",
+    "email": "admin@yopmail.com"
+}
+
+
+
+### POST ROLE
+POST {{api}}/role
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+{
+  "name": "admin"
+}
+
+### GET ROLE
+GET {{api}}/role
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+
+### PFP debe estar en la raíz del proyecto 
+@pfp=nopfp.png
+
+### POST USER
+POST {{api}}/user
+Authorization: Bearer {{auth}}
+Content-Type: multipart/form-data; boundary=Boundry
+
+--Boundry
+Content-Disposition: form-data; name="json"
+Content-Type: application/json; charset=utf-8
+
+{
+    "firstName": "Bianca",
+    "lastName": "Nieve",
+    "email": "bnieve@yopmail.com",
+    "password": "Bianca@2024",
+    "profileImage": "{{pfp}}",
+    "createdAt": "",
+    "role": "1"
+}
+
+--Boundry
+Content-Disposition: form-data; name="image"; filename="{{pfp}}"
+Content-Type: image/png
+
+< ./{{pfp}}
+
+--Boundry--
+
+### GET USERS
+GET {{api}}/user/list
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+###
+@id=1
+
+### PUT USER
+PUT {{api}}/user/{{id}}
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+{
+    "firstName": "Admin",
+    "lastName": "Admin",
+    "email": "admin@yopmail.com",
+    "password": "Admin2024",
+    "profileImage": "nopfp.png",
+    "createdAt": "today",
+    "role": {
+      "_id": 1,
+      "name": "admin"
+    }
+}
+
+### DELETE USER
+DELETE {{api}}/user/{{id}}
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+
+
+### POST CLOCKING
+POST {{api}}/hour-register
+Authorization: Bearer {{auth}}
+Content-Type: application/json
+
+{
+    "type": "in",
+    "date": "today",
+    "user": 1
+}
+
+### GET CLOCKINGS
+GET {{api}}/hour-register
+Authorization: Bearer {{auth}}
+Content-Type: application/json
